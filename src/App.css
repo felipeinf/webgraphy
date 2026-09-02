@@ -1,0 +1,298 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #e6e6f0;
+  background-color: #0d0d12;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: #14141c;
+  border-bottom: 1px solid #2a2a38;
+  flex-shrink: 0;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 200px;
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #7c6af7;
+  letter-spacing: -0.02em;
+}
+
+.stats {
+  font-size: 12px;
+  color: #8888a0;
+}
+
+.toolbar-center {
+  flex: 1;
+}
+
+.search-input {
+  width: 100%;
+  max-width: 400px;
+  padding: 7px 12px;
+  border: 1px solid #2a2a38;
+  border-radius: 8px;
+  background: #0d0d12;
+  color: #e6e6f0;
+  font-size: 13px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #7c6af7;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.last-sync {
+  font-size: 11px;
+  color: #666680;
+}
+
+.export-group {
+  display: flex;
+  gap: 4px;
+}
+
+.action-btn {
+  padding: 6px 12px;
+  border: 1px solid #2a2a38;
+  border-radius: 6px;
+  background: #1a1a26;
+  color: #e6e6f0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: #24243a;
+  border-color: #7c6af7;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn.primary {
+  background: #7c6af7;
+  border-color: #7c6af7;
+  color: #fff;
+}
+
+.action-btn.primary:hover {
+  background: #6a58e0;
+}
+
+.action-btn.danger {
+  border-color: #ff6b6b44;
+  color: #ff6b6b;
+}
+
+.action-btn.danger:hover {
+  background: #ff6b6b22;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-container {
+  flex: 1;
+  position: relative;
+}
+
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #666680;
+  pointer-events: none;
+}
+
+.graph-empty .hint {
+  font-size: 12px;
+  color: #44445a;
+}
+
+.node-detail {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 320px;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  padding: 20px;
+  background: #14141cdd;
+  backdrop-filter: blur(12px);
+  border: 1px solid #2a2a38;
+  border-radius: 12px;
+  z-index: 10;
+}
+
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #8888a0;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #e6e6f0;
+}
+
+.detail-favicon {
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.node-detail h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-right: 24px;
+  word-break: break-word;
+}
+
+.detail-meta {
+  font-size: 12px;
+  color: #8888a0;
+  margin-bottom: 12px;
+}
+
+.detail-title {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.detail-url {
+  font-size: 11px;
+  color: #7c6af7;
+  word-break: break-all;
+  margin-bottom: 10px;
+}
+
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.browser-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.browser-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 12px;
+  color: #ccc;
+}
+
+.error-banner {
+  padding: 8px 16px;
+  background: #ff6b6b22;
+  border-bottom: 1px solid #ff6b6b44;
+  color: #ff8a8a;
+  font-size: 12px;
+}
+
+.warning-banner {
+  padding: 6px 16px;
+  background: #fbbc0422;
+  border-bottom: 1px solid #fbbc0444;
+  color: #fbbc04;
+  font-size: 11px;
+}
+
+.graph-tooltip {
+  max-width: 320px;
+  padding: 8px 10px;
+  background: #14141cee;
+  border: 1px solid #2a2a38;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c8c8d8;
+  word-break: break-word;
+}
+
+.graph-tooltip strong {
+  color: #e6e6f0;
+  font-size: 12px;
+}
+
+.graph-tooltip .tip-url {
+  color: #7c6af7;
+}
+
+.loading-indicator {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  background: #14141cdd;
+  border: 1px solid #2a2a38;
+  border-radius: 20px;
+  font-size: 12px;
+  color: #8888a0;
+  z-index: 20;
+}
