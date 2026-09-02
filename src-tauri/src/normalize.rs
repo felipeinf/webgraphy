@@ -85,6 +85,50 @@ pub fn extract_hostname(url: &str) -> Option<String> {
         .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
 }
 
+const MULTI_PART_SUFFIXES: &[&str] = &[
+    "co.uk",
+    "org.uk",
+    "com.br",
+    "com.au",
+    "co.jp",
+    "co.nz",
+    "com.mx",
+    "com.ar",
+    "com.co",
+    "gob.cl",
+    "gov.uk",
+    "edu.au",
+];
+
+pub fn registrable_domain(hostname: &str) -> String {
+    let host = hostname.trim().to_lowercase();
+    if host.is_empty() {
+        return host;
+    }
+
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+
+    for suffix in MULTI_PART_SUFFIXES {
+        if host == *suffix {
+            return host.to_string();
+        }
+        if host.ends_with(&format!(".{suffix}")) {
+            let prefix = host.strip_suffix(&format!(".{suffix}")).unwrap_or(&host);
+            if let Some((_, registrable)) = prefix.rsplit_once('.') {
+                return format!("{registrable}.{suffix}");
+            }
+            return format!("{prefix}.{suffix}");
+        }
+    }
+
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() <= 2 {
+        return host.to_string();
+    }
+
+    format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
+}
+
 fn is_tracking_param(key: &str) -> bool {
     let lower = key.to_lowercase();
     TRACKING_PARAMS
@@ -112,5 +156,13 @@ mod tests {
         let a = normalize_url("https://github.com/user/").unwrap();
         let b = normalize_url("https://github.com/user").unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn groups_subdomains_to_registrable_domain() {
+        assert_eq!(registrable_domain("aa.tuiabogado.cl"), "tuiabogado.cl");
+        assert_eq!(registrable_domain("app.github.com"), "github.com");
+        assert_eq!(registrable_domain("tuiabogado.cl"), "tuiabogado.cl");
+        assert_eq!(registrable_domain("www.google.com"), "google.com");
     }
 }

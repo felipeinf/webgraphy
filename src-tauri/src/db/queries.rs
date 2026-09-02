@@ -1,6 +1,9 @@
-use crate::models::{DomainDetail, GraphData, GraphLink, GraphNode, PageDetail, SyncStatus};
-use chrono::Utc;
+use crate::models::{
+    DomainDetail, ExportDomain, ExportPage, ExportTree, GraphData, GraphLink, GraphNode, PageDetail,
+    SyncStatus, Tag,
+};
 use rusqlite::{params, Connection, Result as SqlResult};
+use url::Url;
 
 pub fn is_dismissed(conn: &Connection, normalized_url: &str) -> SqlResult<bool> {
     let count: i64 = conn.query_row(
@@ -151,6 +154,106 @@ pub fn archive_page(conn: &Connection, page_id: i64, now: &str) -> SqlResult<()>
     Ok(())
 }
 
+pub fn archive_domain(conn: &Connection, domain_id: i64, now: &str) -> SqlResult<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM pages WHERE domain_id = ?1 AND is_archived = 0",
+    )?;
+    let page_ids: Vec<i64> = stmt
+        .query_map([domain_id], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for page_id in page_ids {
+        archive_page(conn, page_id, now)?;
+    }
+    Ok(())
+}
+
+pub fn list_tags(conn: &Connection) -> SqlResult<Vec<Tag>> {
+    let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name COLLATE NOCASE")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn list_tags_for_domain(conn: &Connection, domain_id: i64) -> SqlResult<Vec<Tag>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name FROM tags t
+         JOIN domain_tags dt ON dt.tag_id = t.id
+         WHERE dt.domain_id = ?1
+         ORDER BY t.name COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([domain_id], |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn create_tag(conn: &Connection, name: &str) -> SqlResult<Tag> {
+    let trimmed = name.trim();
+    conn.execute(
+        "INSERT INTO tags (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+        [trimmed],
+    )?;
+    conn.query_row(
+        "SELECT id, name FROM tags WHERE name = ?1 COLLATE NOCASE",
+        [trimmed],
+        |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        },
+    )
+}
+
+pub fn delete_tag(conn: &Connection, tag_id: i64) -> SqlResult<()> {
+    conn.execute("DELETE FROM tags WHERE id = ?1", [tag_id])?;
+    Ok(())
+}
+
+pub fn set_domain_tag(
+    conn: &Connection,
+    domain_id: i64,
+    tag_id: i64,
+    assigned: bool,
+) -> SqlResult<()> {
+    if assigned {
+        conn.execute(
+            "INSERT OR IGNORE INTO domain_tags (domain_id, tag_id) VALUES (?1, ?2)",
+            params![domain_id, tag_id],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM domain_tags WHERE domain_id = ?1 AND tag_id = ?2",
+            params![domain_id, tag_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn domain_matches_tags(conn: &Connection, domain_id: i64, tag_ids: &[i64]) -> SqlResult<bool> {
+    if tag_ids.is_empty() {
+        return Ok(true);
+    }
+    for tag_id in tag_ids {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM domain_tags WHERE domain_id = ?1 AND tag_id = ?2",
+            params![domain_id, tag_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn get_browsers_for_page(conn: &Connection, page_id: i64) -> SqlResult<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT browser FROM tab_snapshots WHERE page_id = ?1 ORDER BY browser",
@@ -198,6 +301,7 @@ pub fn get_graph_data(
     conn: &Connection,
     search: Option<&str>,
     expanded_domains: Option<&[i64]>,
+    tag_ids: Option<&[i64]>,
 ) -> SqlResult<GraphData> {
     let mut nodes = Vec::new();
     let mut links = Vec::new();
@@ -220,7 +324,13 @@ pub fn get_graph_data(
     })?;
 
     for domain in domain_rows {
-        let (id, hostname, favicon_url, is_expanded, page_count) = domain?;
+        let (id, hostname, favicon_url, _is_expanded, page_count) = domain?;
+
+        if let Some(ids) = tag_ids {
+            if !ids.is_empty() && !domain_matches_tags(conn, id, ids)? {
+                continue;
+            }
+        }
 
         if let Some(ref filter) = search_filter {
             if !hostname.to_lowercase().contains(filter) {
@@ -251,11 +361,10 @@ pub fn get_graph_data(
             domain_id: Some(id),
         });
 
-        if is_expanded == 0
-            && !expanded_domains
-                .map(|ids| ids.contains(&id))
-                .unwrap_or(false)
-        {
+        let should_expand = expanded_domains
+            .map(|ids| ids.contains(&id))
+            .unwrap_or(false);
+        if !should_expand {
             continue;
         }
 
@@ -364,11 +473,38 @@ pub fn get_page_detail(conn: &Connection, page_id: i64) -> SqlResult<PageDetail>
     })
 }
 
+pub fn set_domain_meta(
+    conn: &Connection,
+    domain_id: i64,
+    meta_title: &str,
+    meta_description: &str,
+) -> SqlResult<()> {
+    conn.execute(
+        "UPDATE domains SET meta_title = ?1, meta_description = ?2 WHERE id = ?3",
+        params![meta_title, meta_description, domain_id],
+    )?;
+    Ok(())
+}
+
 pub fn get_domain_detail(conn: &Connection, domain_id: i64) -> SqlResult<DomainDetail> {
-    let (hostname, page_count, is_expanded): (String, i64, i64) = conn.query_row(
-        "SELECT hostname, page_count, is_expanded FROM domains WHERE id = ?1",
+    let (hostname, page_count, is_expanded, meta_title, meta_description): (
+        String,
+        i64,
+        i64,
+        Option<String>,
+        Option<String>,
+    ) = conn.query_row(
+        "SELECT hostname, page_count, is_expanded, meta_title, meta_description FROM domains WHERE id = ?1",
         [domain_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
     )?;
 
     let mut stmt = conn.prepare(
@@ -383,100 +519,204 @@ pub fn get_domain_detail(conn: &Connection, domain_id: i64) -> SqlResult<DomainD
         .filter_map(|id| get_page_detail(conn, *id).ok())
         .collect();
 
+    let subdomains = collect_subdomains(&hostname, &pages.iter().map(|p| p.original_url.as_str()).collect::<Vec<_>>());
+    let tags = list_tags_for_domain(conn, domain_id)?;
+
     Ok(DomainDetail {
         id: domain_id,
         hostname,
         page_count,
         is_expanded: is_expanded == 1,
+        meta_title,
+        meta_description,
+        subdomains,
+        tags,
         pages,
     })
 }
 
+fn collect_subdomains(registrable: &str, urls: &[&str]) -> Vec<String> {
+    let mut subdomains: Vec<String> = Vec::new();
+
+    for url in urls {
+        let host = Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_lowercase()));
+
+        if let Some(host) = host {
+            if host != registrable
+                && crate::normalize::registrable_domain(&host) == registrable
+                && !subdomains.contains(&host)
+            {
+                subdomains.push(host);
+            }
+        }
+    }
+
+    subdomains.sort();
+    subdomains
+}
+
 pub fn export_json(conn: &Connection) -> SqlResult<String> {
+    let mut domain_stmt = conn.prepare(
+        "SELECT id, hostname, meta_title, meta_description
+         FROM domains WHERE page_count > 0 ORDER BY hostname",
+    )?;
+    let domain_rows = domain_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+
     let mut domains = Vec::new();
-    let mut stmt = conn.prepare(
-        "SELECT id FROM domains WHERE page_count > 0 ORDER BY hostname",
-    )?;
-    let ids: Vec<i64> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
+    for domain in domain_rows {
+        let (id, hostname, meta_title, meta_description) = domain?;
+        let mut page_stmt = conn.prepare(
+            "SELECT title, original_url FROM pages
+             WHERE domain_id = ?1 AND is_archived = 0
+             ORDER BY last_seen_at DESC",
+        )?;
+        let page_rows = page_stmt.query_map([id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
 
-    for id in ids {
-        if let Ok(detail) = get_domain_detail(conn, id) {
-            domains.push(detail);
+        let mut pages = Vec::new();
+        for page in page_rows {
+            let (title, url) = page?;
+            pages.push(ExportPage {
+                title: if title.is_empty() || title == "New Tab" {
+                    url.clone()
+                } else {
+                    title
+                },
+                url,
+            });
         }
+
+        let subdomains = collect_subdomains(
+            &hostname,
+            &pages.iter().map(|p| p.url.as_str()).collect::<Vec<_>>(),
+        );
+
+        let tag_names: Vec<String> = list_tags_for_domain(conn, id)?
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+
+        domains.push(ExportDomain {
+            hostname,
+            title: empty_to_none(meta_title),
+            description: empty_to_none(meta_description),
+            subdomains,
+            tags: tag_names,
+            pages,
+        });
     }
 
-    serde_json::to_string_pretty(&domains).map_err(|e| {
-        rusqlite::Error::ToSqlConversionFailure(Box::new(e))
+    let all_tags: Vec<String> = list_tags(conn)?
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
+    serde_json::to_string_pretty(&ExportTree {
+        tags: all_tags,
+        domains,
     })
+    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
 
-pub fn export_markdown(conn: &Connection) -> SqlResult<String> {
-    let mut out = String::from("# Webgraphy Export\n\n");
-    let mut stmt = conn.prepare(
-        "SELECT id, hostname FROM domains WHERE page_count > 0 ORDER BY hostname",
-    )?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
+pub fn import_json(conn: &mut Connection, raw: &str) -> Result<(usize, usize), String> {
+    let tree = parse_export_tree(raw)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    for row in rows {
-        let (domain_id, hostname) = row?;
-        out.push_str(&format!("## {hostname}\n\n"));
-        let mut page_stmt = conn.prepare(
-            "SELECT title, normalized_url FROM pages WHERE domain_id = ?1 AND is_archived = 0",
-        )?;
-        let pages = page_stmt.query_map([domain_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })?;
-        for page in pages {
-            let (title, url) = page?;
-            let label = if title.is_empty() || title == "New Tab" {
-                url.clone()
-            } else {
-                title
-            };
-            out.push_str(&format!("- [{label}]({url})\n"));
-        }
-        out.push('\n');
+    let mut domains_upserted = 0usize;
+    let mut pages_upserted = 0usize;
+
+    for name in &tree.tags {
+        let _ = create_tag(&tx, name);
     }
-    Ok(out)
+
+    for domain in tree.domains {
+        let hostname = crate::normalize::registrable_domain(&domain.hostname);
+        if hostname.is_empty() {
+            continue;
+        }
+
+        let domain_id = upsert_domain(&tx, &hostname, &now).map_err(|e| e.to_string())?;
+        domains_upserted += 1;
+
+        if let Some(title) = empty_to_none(domain.title.clone()) {
+            tx.execute(
+                "UPDATE domains SET meta_title = ?1
+                 WHERE id = ?2 AND (meta_title IS NULL OR meta_title = '')",
+                params![title, domain_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if let Some(description) = empty_to_none(domain.description.clone()) {
+            tx.execute(
+                "UPDATE domains SET meta_description = ?1
+                 WHERE id = ?2 AND (meta_description IS NULL OR meta_description = '')",
+                params![description, domain_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        for page in domain.pages {
+            let url = page.url.trim();
+            if url.is_empty() {
+                continue;
+            }
+            let Some(normalized) = crate::normalize::normalize_url(url) else {
+                continue;
+            };
+            if is_dismissed(&tx, &normalized).unwrap_or(false) {
+                continue;
+            }
+            upsert_page(&tx, domain_id, &normalized, url, &page.title, &now)
+                .map_err(|e| e.to_string())?;
+            pages_upserted += 1;
+        }
+
+        for tag_name in domain.tags {
+            if let Ok(tag) = create_tag(&tx, &tag_name) {
+                let _ = set_domain_tag(&tx, domain_id, tag.id, true);
+            }
+        }
+    }
+
+    refresh_domain_counts(&tx).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok((domains_upserted, pages_upserted))
 }
 
-pub fn export_html(conn: &Connection) -> SqlResult<String> {
-    let mut out = String::from(
-        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<meta charset=\"UTF-8\">\n<title>Webgraphy Export</title>\n<h1>Bookmarks</h1>\n<dl>\n",
-    );
-
-    let mut stmt = conn.prepare(
-        "SELECT id, hostname FROM domains WHERE page_count > 0 ORDER BY hostname",
-    )?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?;
-
-    for row in rows {
-        let (domain_id, hostname) = row?;
-        out.push_str(&format!("<dt><h3>{hostname}</h3></dt>\n<dd>\n"));
-        let mut page_stmt = conn.prepare(
-            "SELECT title, normalized_url FROM pages WHERE domain_id = ?1 AND is_archived = 0",
-        )?;
-        let pages = page_stmt.query_map([domain_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })?;
-        for page in pages {
-            let (title, url) = page?;
-            let label = if title.is_empty() || title == "New Tab" {
-                url.clone()
-            } else {
-                title
-            };
-            let ts = Utc::now().timestamp();
-            out.push_str(&format!(
-                "<dt><a href=\"{url}\" ADD_DATE=\"{ts}\">{label}</a></dt>\n"
-            ));
+fn parse_export_tree(raw: &str) -> Result<ExportTree, String> {
+    if let Ok(tree) = serde_json::from_str::<ExportTree>(raw) {
+        if !tree.domains.is_empty() || raw.contains("\"domains\"") {
+            return Ok(tree);
         }
-        out.push_str("</dd>\n");
     }
-    out.push_str("</dl>\n");
-    Ok(out)
+    serde_json::from_str::<Vec<ExportDomain>>(raw)
+        .map(|domains| ExportTree {
+            tags: vec![],
+            domains,
+        })
+        .map_err(|e| format!("Invalid Webgraphy JSON: {e}"))
+}
+
+fn empty_to_none(value: Option<String>) -> Option<String> {
+    value.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
 }
 
 fn truncate_str(s: &str, max: usize) -> String {

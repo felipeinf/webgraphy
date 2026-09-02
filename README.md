@@ -2,6 +2,21 @@
 
 Lightweight macOS app that imports open tabs from Safari, Chrome, and Opera into a deduplicated, domain-grouped force-directed graph.
 
+## Install
+
+macOS Apple Silicon (arm64):
+
+```bash
+npm install -g webgraphy
+webgraphy
+```
+
+Or run without installing:
+
+```bash
+npx webgraphy
+```
+
 ## Features
 
 - Import open tabs from Safari, Chrome, and Opera via AppleScript
@@ -45,7 +60,7 @@ npm run tauri build
 
 ## Data Storage
 
-SQLite database: `~/Library/Application Support/com.felipeinf.webgraphy/webgraphy.db`
+SQLite database: `~/.webgraphy/webgraphy.db`
 
 ## Stack
 

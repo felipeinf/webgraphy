@@ -4,7 +4,7 @@ import ForceGraph2D, {
   type LinkObject,
   type NodeObject,
 } from "react-force-graph-2d";
-import { invoke } from "@tauri-apps/api/core";
+import { forceCollide } from "d3-force";
 import type { GraphData, GraphNode } from "../types/graph";
 import { useFavicons } from "../hooks/useFavicons";
 
@@ -19,7 +19,7 @@ interface GraphCanvasProps {
   selectedId: string | null;
   expandedDomainId: number | null;
   onDomainClick: (domainId: number) => void;
-  onCollapseAll: () => void;
+  onFocusedDomainChange: (domainId: number | null) => void;
 }
 
 type ForceNode = GraphNode & NodeObject;
@@ -29,10 +29,46 @@ const DOMAIN_COLOR = "#7c6af7";
 const PAGE_COLOR = "#4ecdc4";
 const SELECTED_COLOR = "#ff6b6b";
 const EXPANDED_DOMAIN_COLOR = "#9b8cff";
-const CLUSTER_STRENGTH = 0.22;
+const CLUSTER_STRENGTH = 0.18;
+const ZOOM_EXPAND_THRESHOLD = 1.35;
+const FOCUS_DEBOUNCE_MS = 80;
+
+function findFocusedDomainId(
+  fg: ForceGraphMethods<ForceNode, ForceLink>,
+  width: number,
+  height: number,
+  nodes: ForceNode[],
+): number | null {
+  const { x, y } = fg.screen2GraphCoords(width / 2, height / 2);
+  const zoom = fg.zoom();
+  const maxDist = (220 / zoom) ** 2;
+
+  let bestId: number | null = null;
+  let bestDist = Infinity;
+
+  for (const node of nodes) {
+    if (node.node_type !== "domain" || node.domain_id === undefined) continue;
+    if (node.x === undefined || node.y === undefined) continue;
+    const dist = (node.x - x) ** 2 + (node.y - y) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestId = node.domain_id;
+    }
+  }
+
+  if (bestId === null || bestDist > maxDist) return null;
+  return bestId;
+}
 
 function domainRadius(pageCount: number | undefined): number {
   return Math.min(26, 9 + (pageCount ?? 1) * 1.2);
+}
+
+function nodeCollisionRadius(node: ForceNode): number {
+  if (node.node_type === "domain") {
+    return domainRadius(node.page_count) + 10;
+  }
+  return 12;
 }
 
 function pageLabelMaxChars(globalScale: number): number {
@@ -124,17 +160,22 @@ export function GraphCanvas({
   selectedId,
   expandedDomainId,
   onDomainClick,
-  onCollapseAll,
+  onFocusedDomainChange,
 }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods<ForceNode, ForceLink> | undefined>(
     undefined,
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const focusTimerRef = useRef<number | null>(null);
+  const hasSetInitialZoomRef = useRef(false);
+  const hoveredDomainIdRef = useRef<number | null>(null);
+  const expandedDomainIdRef = useRef<number | null>(expandedDomainId);
+  const userNavigatedRef = useRef(false);
+  expandedDomainIdRef.current = expandedDomainId;
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  const isCollapsed = expandedDomainId === null;
   const domainCount = graph.nodes.filter((n) => n.node_type === "domain").length;
 
   const hostnames = useMemo(
@@ -160,7 +201,7 @@ export function GraphCanvas({
       } else if (
         node.node_type === "page" &&
         node.domain_id !== undefined &&
-        expandedDomainId === node.domain_id
+        expandedDomainIdRef.current === node.domain_id
       ) {
         const parentPos = positionsRef.current.get(`domain-${node.domain_id}`);
         if (parentPos) {
@@ -184,7 +225,7 @@ export function GraphCanvas({
     })) as ForceLink[];
 
     return { nodes, links };
-  }, [graph, expandedDomainId]);
+  }, [graph]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -209,33 +250,33 @@ export function GraphCanvas({
 
     const charge = fg.d3Force("charge");
     if (charge) {
-      if (isCollapsed) {
-        charge.strength(-90).distanceMax(140);
-      } else {
-        charge.strength((node: ForceNode) =>
-          node.node_type === "domain" ? -320 : -50,
-        );
-        charge.distanceMax(280);
-      }
+      charge
+        .strength((node: ForceNode) =>
+          node.node_type === "domain" ? -120 : -30,
+        )
+        .distanceMax(200);
     }
 
     const center = fg.d3Force("center");
     if (center) {
-      center.strength(isCollapsed ? 0.35 : 0.08);
+      center.strength(0.1);
     }
 
     const link = fg.d3Force("link");
     if (link) {
-      link.distance((linkObj: ForceLink) => {
-        const target = linkObj.target as ForceNode;
-        return target?.node_type === "page" ? 72 : 24;
-      });
-      link.strength(0.6);
+      link.distance(60).strength(0.5);
     }
 
+    fg.d3Force(
+      "collide",
+      forceCollide<ForceNode>()
+        .radius((node) => nodeCollisionRadius(node))
+        .strength(0.8)
+        .iterations(2),
+    );
+
     fg.d3Force("cluster", createClusterForce());
-    fg.d3ReheatSimulation();
-  }, [forceData, isCollapsed]);
+  }, [forceData]);
 
   const savePositions = useCallback(() => {
     for (const node of forceData.nodes) {
@@ -245,10 +286,79 @@ export function GraphCanvas({
     }
   }, [forceData.nodes]);
 
+  const updateFocusedDomain = useCallback(() => {
+    const fg = fgRef.current;
+    if (!fg || dimensions.width === 0) return;
+    if (!userNavigatedRef.current) return;
+
+    const zoom = fg.zoom();
+    if (zoom < ZOOM_EXPAND_THRESHOLD) {
+      onFocusedDomainChange(null);
+      return;
+    }
+
+    if (hoveredDomainIdRef.current !== null) {
+      onFocusedDomainChange(hoveredDomainIdRef.current);
+      return;
+    }
+
+    const domainNodes = forceData.nodes.filter((n) => n.node_type === "domain");
+    const focusedId = findFocusedDomainId(
+      fg,
+      dimensions.width,
+      dimensions.height,
+      domainNodes as ForceNode[],
+    );
+    onFocusedDomainChange(focusedId);
+  }, [
+    dimensions.width,
+    dimensions.height,
+    forceData.nodes,
+    onFocusedDomainChange,
+  ]);
+
+  const scheduleFocusUpdate = useCallback(() => {
+    if (focusTimerRef.current !== null) {
+      window.clearTimeout(focusTimerRef.current);
+    }
+    focusTimerRef.current = window.setTimeout(() => {
+      focusTimerRef.current = null;
+      updateFocusedDomain();
+    }, FOCUS_DEBOUNCE_MS);
+  }, [updateFocusedDomain]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) return;
+
+      event.preventDefault();
+      userNavigatedRef.current = true;
+      const fg = fgRef.current;
+      if (!fg) return;
+
+      const scale = fg.zoom();
+      const { x, y } = fg.centerAt();
+      fg.centerAt(x - event.deltaX / scale, y - event.deltaY / scale, 0);
+      scheduleFocusUpdate();
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => container.removeEventListener("wheel", onWheel);
+  }, [scheduleFocusUpdate]);
+
+  useEffect(() => {
+    return () => {
+      if (focusTimerRef.current !== null) {
+        window.clearTimeout(focusTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleNodeClick = useCallback(
     (node: ForceNode) => {
-      savePositions();
-
       if (node.node_type === "domain" && node.domain_id !== undefined) {
         onDomainClick(node.domain_id);
         onNodeSelect(node);
@@ -257,12 +367,9 @@ export function GraphCanvas({
 
       if (node.node_type === "page") {
         onNodeSelect(node);
-        if (node.url) {
-          void invoke("open_url", { url: node.url });
-        }
       }
     },
-    [onDomainClick, onNodeSelect, savePositions],
+    [onDomainClick, onNodeSelect],
   );
 
   const handleNodeRightClick = useCallback(
@@ -273,19 +380,37 @@ export function GraphCanvas({
     [onNodeSelect],
   );
 
-  const handleNodeHover = useCallback((node: ForceNode | null) => {
-    setHoveredId(node?.id ?? null);
-    const el = containerRef.current;
-    if (el) {
-      el.style.cursor = node ? "pointer" : "default";
-    }
-  }, []);
+  const handleNodeHover = useCallback(
+    (node: ForceNode | null) => {
+      setHoveredId(node?.id ?? null);
+      const el = containerRef.current;
+      if (el) {
+        el.style.cursor = node ? "pointer" : "default";
+      }
+
+      const domainId =
+        node?.node_type === "domain" && node.domain_id !== undefined
+          ? node.domain_id
+          : null;
+
+      if (domainId !== null && domainId !== hoveredDomainIdRef.current) {
+        hoveredDomainIdRef.current = domainId;
+        const fg = fgRef.current;
+        if (fg && fg.zoom() >= ZOOM_EXPAND_THRESHOLD) {
+          onFocusedDomainChange(domainId);
+        }
+      } else if (domainId === null && node === null) {
+        hoveredDomainIdRef.current = null;
+      }
+    },
+    [onFocusedDomainChange],
+  );
 
   const nodeTooltip = useCallback((node: ForceNode) => {
     const lines: string[] = [];
     if (node.node_type === "domain") {
       lines.push(`<strong>${escapeHtml(node.hostname ?? node.label)}</strong>`);
-      lines.push(`${node.page_count ?? 0} pages · click to expand`);
+      lines.push(`${node.page_count ?? 0} pages · zoom in to expand`);
     } else {
       const title =
         node.title && node.title !== "New Tab" ? node.title : node.label;
@@ -395,9 +520,10 @@ export function GraphCanvas({
 
   useEffect(() => {
     const fg = fgRef.current;
-    if (!fg || forceData.nodes.length === 0 || !isCollapsed) return;
+    if (!fg || forceData.nodes.length === 0 || hasSetInitialZoomRef.current) return;
     fg.zoom(initialZoom, 0);
-  }, [forceData.nodes.length, initialZoom, isCollapsed]);
+    hasSetInitialZoomRef.current = true;
+  }, [forceData.nodes.length, initialZoom]);
 
   return (
     <div ref={containerRef} className="graph-container">
@@ -414,17 +540,19 @@ export function GraphCanvas({
           onNodeClick={handleNodeClick}
           onNodeRightClick={handleNodeRightClick}
           onNodeHover={handleNodeHover}
+          onEngineTick={savePositions}
           onNodeDragEnd={savePositions}
-          onBackgroundClick={() => {
-            savePositions();
-            onCollapseAll();
-          }}
+          onZoom={scheduleFocusUpdate}
+          onZoomEnd={updateFocusedDomain}
+          onBackgroundClick={() => onNodeSelect(null)}
+          enableZoomInteraction={(event) => event.ctrlKey || event.metaKey}
+          enablePanInteraction
           linkColor={() => "rgba(124,106,247,0.2)"}
           linkWidth={0.8}
           backgroundColor="#0d0d12"
-          cooldownTicks={120}
-          d3AlphaDecay={0.032}
-          d3VelocityDecay={0.4}
+          cooldownTicks={60}
+          d3AlphaDecay={0.05}
+          d3VelocityDecay={0.6}
           enableNodeDrag
           minZoom={0.25}
           maxZoom={6}

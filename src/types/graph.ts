@@ -53,5 +53,14 @@ export interface DomainDetail {
   hostname: string;
   page_count: number;
   is_expanded: boolean;
+  meta_title?: string | null;
+  meta_description?: string | null;
+  subdomains: string[];
+  tags: Tag[];
   pages: PageDetail[];
+}
+
+export interface Tag {
+  id: number;
+  name: string;
 }

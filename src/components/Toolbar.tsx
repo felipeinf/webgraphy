@@ -7,7 +7,7 @@ interface ToolbarProps {
   onSync: () => void;
   syncing: boolean;
   status: SyncStatus | null;
-  onExport: (format: "json" | "markdown" | "html") => void;
+  onImported: () => void;
 }
 
 export function Toolbar({
@@ -16,20 +16,27 @@ export function Toolbar({
   onSync,
   syncing,
   status,
-  onExport,
+  onImported,
 }: ToolbarProps) {
-  const handleExport = async (format: "json" | "markdown" | "html") => {
+  const handleExport = async () => {
     try {
-      const content = await invoke<string>("export_graph", { format });
-      const saved = await invoke<string | null>("save_export", {
-        content,
-        format,
-      });
-      if (saved) {
-        onExport(format);
-      }
+      await invoke<string | null>("export_graph");
     } catch (e) {
       console.error("Export failed:", e);
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const result = await invoke<{
+        domains_upserted: number;
+        pages_upserted: number;
+      } | null>("import_graph");
+      if (result) {
+        onImported();
+      }
+    } catch (e) {
+      console.error("Import failed:", e);
     }
   };
 
@@ -66,29 +73,12 @@ export function Toolbar({
         >
           {syncing ? "Syncing…" : "Sync now"}
         </button>
-        <div className="export-group">
-          <button
-            className="action-btn"
-            onClick={() => handleExport("json")}
-            type="button"
-          >
-            JSON
-          </button>
-          <button
-            className="action-btn"
-            onClick={() => handleExport("markdown")}
-            type="button"
-          >
-            MD
-          </button>
-          <button
-            className="action-btn"
-            onClick={() => handleExport("html")}
-            type="button"
-          >
-            HTML
-          </button>
-        </div>
+        <button className="action-btn" onClick={handleImport} type="button">
+          Import
+        </button>
+        <button className="action-btn" onClick={handleExport} type="button">
+          Export
+        </button>
       </div>
     </header>
   );
