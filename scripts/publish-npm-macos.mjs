@@ -74,30 +74,21 @@ writeFileSync(
     {
       name: "webgraphy",
       version: rootPkg.version,
-      description:
-        "macOS app that imports open tabs from Safari, Chrome, and Opera into a domain-grouped graph.",
+      description: rootPkg.description,
       type: "module",
       bin: {
         webgraphy: "bin/webgraphy.js",
       },
       os: ["darwin"],
       cpu: [cpu],
-      engines: {
-        node: ">=18",
-      },
+      engines: rootPkg.engines ?? { node: ">=18" },
       files: ["bin", "Webgraphy.app"],
-      keywords: [
-        "macos",
-        "tabs",
-        "safari",
-        "chrome",
-        "opera",
-        "graph",
-        "bookmarks",
-        "tauri",
-      ],
-      author: "felipeinf",
-      license: "MIT",
+      keywords: rootPkg.keywords ?? [],
+      author: rootPkg.author ?? "felipeinf",
+      license: rootPkg.license ?? "MIT",
+      repository: rootPkg.repository,
+      bugs: rootPkg.bugs,
+      homepage: rootPkg.homepage,
       publishConfig: {
         access: "public",
       },

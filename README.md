@@ -1,6 +1,16 @@
 # Webgraphy
 
+[![npm version](https://img.shields.io/npm/v/webgraphy.svg)](https://www.npmjs.com/package/webgraphy)
+[![npm downloads](https://img.shields.io/npm/dm/webgraphy.svg)](https://www.npmjs.com/package/webgraphy)
+[![GitHub stars](https://img.shields.io/github/stars/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy/issues)
+[![GitHub last commit](https://img.shields.io/github/last-commit/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy)
+[![License: MIT](https://img.shields.io/github/license/felipeinf/webgraphy.svg)](LICENSE)
+[![platform](https://img.shields.io/badge/platform-macOS%20arm64-black.svg)](https://github.com/felipeinf/webgraphy)
+
 Lightweight macOS app that imports open tabs from Safari, Chrome, and Opera into a deduplicated, domain-grouped force-directed graph.
+
+![Webgraphy](assets/img-0.png)
 
 ## Install
 

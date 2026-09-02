@@ -4,6 +4,32 @@
   "version": "0.1.0",
   "type": "module",
   "description": "macOS app that imports open tabs from Safari, Chrome, and Opera into a domain-grouped graph.",
+  "keywords": [
+    "macos",
+    "tabs",
+    "safari",
+    "chrome",
+    "opera",
+    "graph",
+    "bookmarks",
+    "visualization",
+    "force-graph",
+    "tauri",
+    "browser"
+  ],
+  "author": "felipeinf",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felipeinf/webgraphy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/felipeinf/webgraphy/issues"
+  },
+  "homepage": "https://github.com/felipeinf/webgraphy#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
