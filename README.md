@@ -3,79 +3,43 @@
 [![npm version](https://img.shields.io/npm/v/webgraphy.svg)](https://www.npmjs.com/package/webgraphy)
 [![npm downloads](https://img.shields.io/npm/dm/webgraphy.svg)](https://www.npmjs.com/package/webgraphy)
 [![GitHub stars](https://img.shields.io/github/stars/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy/issues)
-[![GitHub last commit](https://img.shields.io/github/last-commit/felipeinf/webgraphy.svg)](https://github.com/felipeinf/webgraphy)
 [![License: MIT](https://img.shields.io/github/license/felipeinf/webgraphy.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-macOS%20arm64-black.svg)](https://github.com/felipeinf/webgraphy)
 
-Lightweight macOS app that imports open tabs from Safari, Chrome, and Opera into a deduplicated, domain-grouped force-directed graph.
+macOS app that pulls your open tabs from Safari, Chrome, and Opera into a graph grouped by domain.
 
 ![Webgraphy](assets/img-0.png)
 
 ## Install
 
-macOS Apple Silicon (arm64):
+macOS Apple Silicon. Requires [Node.js](https://nodejs.org/) 18+.
 
 ```bash
 npm install -g webgraphy
 webgraphy
 ```
 
-Or run without installing:
+Or once, without installing:
 
 ```bash
 npx webgraphy
 ```
 
-## Features
+## What it does
 
-- Import open tabs from Safari, Chrome, and Opera via AppleScript
-- SNSS session file fallback for Chrome/Opera when AppleScript is unavailable
-- URL deduplication across browsers
-- Domain nodes that expand to show individual pages
-- Auto-sync every 50 seconds + manual sync
+- Imports open tabs from Safari, Chrome, and Opera
+- Deduplicates URLs across browsers
+- Groups pages by domain; click a domain to see its pages
+- Syncs automatically every 50 seconds, or hit **Sync now**
 - Search by domain, title, or URL
-- Remove pages from the graph (dismissed URLs won't re-import)
+- Remove pages from the graph (they will not come back on the next sync)
 - Export to JSON, Markdown, or HTML bookmarks
-- Double-click a page node to open in your default browser
+- Double-click a page to open it in your default browser
 
-## Requirements
+## Permissions
 
-- macOS
-- Rust toolchain
-- Node.js 18+
+The first time you sync, macOS will ask for Automation access. Allow Webgraphy to control **Safari**, **Google Chrome**, and **Opera** in **System Settings → Privacy & Security → Automation**.
 
-## macOS Permissions
+Without that, live tab import is blocked. Chrome and Opera can still fall back to session files.
 
-Grant Automation permission in **System Settings → Privacy & Security → Automation**:
-
-- Allow Webgraphy to control **Safari**
-- Allow Webgraphy to control **Google Chrome**
-- Allow Webgraphy to control **Opera**
-
-Without these permissions, live tab import won't work. The app will attempt SNSS session file fallback for Chrome and Opera.
-
-## Development
-
-```bash
-npm install
-npm run tauri dev
-```
-
-## Build
-
-```bash
-npm run tauri build
-```
-
-## Data Storage
-
-SQLite database: `~/.webgraphy/webgraphy.db`
-
-## Stack
-
-- Tauri 2 (Rust)
-- React + TypeScript + Vite
-- react-force-graph-2d
-- SQLite (rusqlite)
-- snss-core (Chromium session parsing)
+Your graph is stored locally at `~/.webgraphy/webgraphy.db`.
