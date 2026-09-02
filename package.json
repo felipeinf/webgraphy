@@ -1,7 +1,7 @@
 {
   "name": "webgraphy",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.9.1",
   "type": "module",
   "description": "macOS app that imports open tabs from Safari, Chrome, and Opera into a domain-grouped graph.",
   "keywords": [

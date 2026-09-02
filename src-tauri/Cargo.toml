@@ -1,6 +1,6 @@
 [package]
 name = "webgraphy"
-version = "0.1.0"
+version = "0.9.1"
 description = "Multi-browser tab graph manager"
 authors = ["felipeinf"]
 edition = "2021"
